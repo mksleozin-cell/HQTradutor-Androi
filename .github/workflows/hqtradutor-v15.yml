@@ -1,0 +1,170 @@
+name: HQ Tradutor FINAL V15 Contextual
+
+on:
+  push:
+    paths:
+      - '.github/workflows/hqtradutor-v15.yml'
+      - '.github/workflows/hqtradutor-v15.part*'
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Baixar arquivos do repositório
+        uses: actions/checkout@v4
+
+      - name: Conferir as 8 partes
+        id: parts
+        shell: bash
+        run: |
+          set -euo pipefail
+          READY=true
+          for n in 00 01 02 03 04 05 06 07; do
+            FILE=".github/workflows/hqtradutor-v15.part${n}"
+            if [ ! -s "$FILE" ]; then
+              echo "Ainda falta: $FILE"
+              READY=false
+            fi
+          done
+          echo "ready=$READY" >> "$GITHUB_OUTPUT"
+          if [ "$READY" = false ]; then
+            echo "As partes ainda não foram todas enviadas. O último upload iniciará a compilação."
+          fi
+
+      - name: Reconstruir projeto V15
+        if: steps.parts.outputs.ready == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/workflows/hqtradutor-v15.part00 \
+              .github/workflows/hqtradutor-v15.part01 \
+              .github/workflows/hqtradutor-v15.part02 \
+              .github/workflows/hqtradutor-v15.part03 \
+              .github/workflows/hqtradutor-v15.part04 \
+              .github/workflows/hqtradutor-v15.part05 \
+              .github/workflows/hqtradutor-v15.part06 \
+              .github/workflows/hqtradutor-v15.part07 > /tmp/HQTradutorV15-final.b64
+          base64 -d /tmp/HQTradutorV15-final.b64 > /tmp/HQTradutorV15-final.tar.xz
+          echo "b4306c056da41448108c2fee9245b67ce07379d2aab91209a69314fcb44837e0  /tmp/HQTradutorV15-final.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/HQTradutorV15-final.tar.xz
+          test -s HQTradutorV15/app/src/main/java/com/hqtradutor/app/MainActivity.java
+          test -s HQTradutorV15/app/src/main/java/com/hqtradutor/app/ProcessingService.java
+          test -s HQTradutorV15/app/signing/hqtradutor-debug.jks
+
+      - name: Confirmar mesma assinatura da V14
+        if: steps.parts.outputs.ready == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "26a9b482827aad3f803a5a9bfde1e4a609f4021d77a730384336d82103707d1a  HQTradutorV15/app/signing/hqtradutor-debug.jks" | sha256sum -c -
+          keytool -list -v \
+            -keystore HQTradutorV15/app/signing/hqtradutor-debug.jks \
+            -storepass hqtradutor \
+            -alias hqtradutor \
+            -keypass hqtradutor | tee /tmp/key.txt
+          tr -d ':' < /tmp/key.txt | grep -qi 'CE3F16057A846E70FC03F71C1A2BDCB5F5660F192953AF32CF7989F7463AB106'
+          echo 'Assinatura estável da V14 confirmada.'
+
+      - name: Auditoria V15 contextual e zero custo
+        if: steps.parts.outputs.ready == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="HQTradutorV15/app/src/main/java/com/hqtradutor/app/MainActivity.java"
+          SVC="HQTradutorV15/app/src/main/java/com/hqtradutor/app/ProcessingService.java"
+          MAN="HQTradutorV15/app/src/main/AndroidManifest.xml"
+          GRADLE="HQTradutorV15/app/build.gradle"
+
+          grep -q "versionCode 15" "$GRADLE"
+          grep -q "versionName '1.15.0'" "$GRADLE"
+          grep -q 'hqTradutorStable' "$GRADLE"
+          grep -q "com.google.mlkit:translate:17.0.3" "$GRADLE"
+          grep -q 'HQ Tradutor V15' "$SRC"
+          grep -q 'translateBlocksContextually' "$SRC"
+          grep -q 'buildMarkedContextInput' "$SRC"
+          grep -q 'parseMarkedContextTranslation' "$SRC"
+          grep -q 'contextualCacheKey' "$SRC"
+          grep -q 'normalizeOcrText' "$SRC"
+          grep -q 'naturalIdiomOverride' "$SRC"
+          grep -q 'translationLooksBroken' "$SRC"
+          grep -q 'V15 página' "$SRC"
+
+          # Garante que tudo importante da V14 continue presente.
+          grep -q 'prefetchTargetCount' "$SRC"
+          grep -q 'return performanceMode == 2 ? 3 : 2' "$SRC"
+          grep -q 'SHORT_TAIL_CLUSTER' "$SRC"
+          grep -q 'activeCaptureToken' "$SRC"
+          grep -q 'fingerprintDistance' "$SRC"
+          grep -q 'recoverStalledDownload' "$SRC"
+          grep -q 'validateSavedPdf' "$SRC"
+          grep -q 'deleteChapterImageUris' "$SRC"
+          grep -q 'startForeground' "$SVC"
+          grep -q 'PARTIAL_WAKE_LOCK' "$SVC"
+          grep -q 'WIFI_MODE_FULL_HIGH_PERF' "$SVC"
+          grep -q 'FOREGROUND_SERVICE_SPECIAL_USE' "$MAN"
+
+          # A tradução continua local/gratuita: nenhuma API paga ou chave externa.
+          if grep -RqiE 'api\.openai\.com|api\.deepl\.com|translate\.googleapis\.com|OPENAI_API_KEY|DEEPL_API_KEY|Authorization: Bearer' HQTradutorV15; then
+            echo 'ERRO: foi encontrada dependência de API externa/paga.' >&2
+            exit 1
+          fi
+          echo 'Auditoria V15 OK: contexto local + recursos V14 preservados + nenhuma API paga.'
+
+      - name: Java 17
+        if: steps.parts.outputs.ready == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Android SDK
+        if: steps.parts.outputs.ready == 'true'
+        uses: android-actions/setup-android@v3
+
+      - name: Android 35
+        if: steps.parts.outputs.ready == 'true'
+        shell: bash
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+
+      - name: Gradle 8.9
+        if: steps.parts.outputs.ready == 'true'
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Compilar APK FINAL V15
+        if: steps.parts.outputs.ready == 'true'
+        working-directory: HQTradutorV15
+        shell: bash
+        run: gradle :app:assembleDebug --stacktrace
+
+      - name: Conferir APK e assinatura V15
+        if: steps.parts.outputs.ready == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="HQTradutorV15/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          unzip -t "$APK" >/dev/null
+          unzip -l "$APK" | grep -q 'AndroidManifest.xml'
+          unzip -l "$APK" | grep -q 'resources.arsc'
+          unzip -l "$APK" | grep -q 'classes.dex'
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep -q "package: name='com.hqtradutor.app'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep -q "versionCode='15'"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$APK" | tee /tmp/apk-certs.txt
+          tr -d ':' < /tmp/apk-certs.txt | grep -qi 'ce3f16057a846e70fc03f71c1a2bdcb5f5660f192953af32cf7989f7463ab106'
+          echo 'APK V15 assinado com o MESMO certificado da V14.'
+          ls -lh "$APK"
+          sha256sum "$APK"
+
+      - name: Publicar APK FINAL V15
+        if: steps.parts.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: HQTradutor-FINAL-V15-CONTEXTUAL-APK
+          path: HQTradutorV15/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 90
