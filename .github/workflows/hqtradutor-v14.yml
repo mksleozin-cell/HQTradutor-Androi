@@ -1,0 +1,143 @@
+name: HQ Tradutor FINAL V14
+
+on:
+  push:
+    paths:
+      - '.github/workflows/hqtradutor-v14.yml'
+      - '.github/workflows/hqtradutor-v14.part*'
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Baixar arquivos do repositório
+        uses: actions/checkout@v4
+
+      - name: Conferir as 7 partes
+        id: parts
+        shell: bash
+        run: |
+          set -euo pipefail
+          READY=true
+          for n in 00 01 02 03 04 05 06; do
+            FILE=".github/workflows/hqtradutor-v14.part${n}"
+            if [ ! -s "$FILE" ]; then
+              echo "Ainda falta: $FILE"
+              READY=false
+            fi
+          done
+          echo "ready=$READY" >> "$GITHUB_OUTPUT"
+          if [ "$READY" = false ]; then
+            echo "As partes ainda não foram todas enviadas. O último upload iniciará a compilação."
+          fi
+
+      - name: Reconstruir projeto V14
+        if: steps.parts.outputs.ready == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/workflows/hqtradutor-v14.part00 \
+              .github/workflows/hqtradutor-v14.part01 \
+              .github/workflows/hqtradutor-v14.part02 \
+              .github/workflows/hqtradutor-v14.part03 \
+              .github/workflows/hqtradutor-v14.part04 \
+              .github/workflows/hqtradutor-v14.part05 \
+              .github/workflows/hqtradutor-v14.part06 > /tmp/HQTradutorV14-final.b64
+          base64 -d /tmp/HQTradutorV14-final.b64 > /tmp/HQTradutorV14-final.tar.xz
+          echo "902963e0fec547cfbfb2bc13ee7dd7000258ed8c92a9121a2db761e38d1cda17  /tmp/HQTradutorV14-final.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/HQTradutorV14-final.tar.xz
+          test -s HQTradutorV14/app/src/main/java/com/hqtradutor/app/MainActivity.java
+          test -s HQTradutorV14/app/src/main/java/com/hqtradutor/app/ProcessingService.java
+          test -s HQTradutorV14/app/signing/hqtradutor-debug.jks
+
+      - name: Auditoria V14
+        if: steps.parts.outputs.ready == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="HQTradutorV14/app/src/main/java/com/hqtradutor/app/MainActivity.java"
+          SVC="HQTradutorV14/app/src/main/java/com/hqtradutor/app/ProcessingService.java"
+          MAN="HQTradutorV14/app/src/main/AndroidManifest.xml"
+          GRADLE="HQTradutorV14/app/build.gradle"
+          grep -q "versionCode 14" "$GRADLE"
+          grep -q "versionName '1.14.0'" "$GRADLE"
+          grep -q "HQ Tradutor V14" "$SRC"
+          grep -q 'private static final class DetectedBlock' "$SRC"
+          grep -q 'prefetchTargetCount' "$SRC"
+          grep -q 'prefetchDownloadIds' "$SRC"
+          grep -q 'return performanceMode == 2 ? 3 : 2' "$SRC"
+          grep -q 'Pipeline paralelo' "$SRC"
+          grep -q 'SHORT_TAIL_CLUSTER' "$SRC"
+          grep -q 'ignoredShortTailFromPage' "$SRC"
+          grep -q 'o.outHeight >= 80' "$SRC"
+          grep -q 'bitmap.getHeight() < 80' "$SRC"
+          grep -q 'PDF existente validado' "$SRC"
+          grep -q 'validateSavedPdf' "$SRC"
+          grep -q 'deleteChapterImageUris' "$SRC"
+          grep -q 'CAPTURE_ISOLATED' "$SRC"
+          grep -q 'activeCaptureToken' "$SRC"
+          grep -q 'fingerprintDistance' "$SRC"
+          grep -q 'recoverStalledDownload' "$SRC"
+          grep -q 'startForeground' "$SVC"
+          grep -q 'PARTIAL_WAKE_LOCK' "$SVC"
+          grep -q 'WIFI_MODE_FULL_HIGH_PERF' "$SVC"
+          grep -q 'FOREGROUND_SERVICE_SPECIAL_USE' "$MAN"
+          grep -q 'hqTradutorStable' "$GRADLE"
+          echo 'Auditoria V14 OK.'
+
+      - name: Java 17
+        if: steps.parts.outputs.ready == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Android SDK
+        if: steps.parts.outputs.ready == 'true'
+        uses: android-actions/setup-android@v3
+
+      - name: Android 35
+        if: steps.parts.outputs.ready == 'true'
+        shell: bash
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+
+      - name: Gradle 8.9
+        if: steps.parts.outputs.ready == 'true'
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Compilar APK FINAL V14
+        if: steps.parts.outputs.ready == 'true'
+        working-directory: HQTradutorV14
+        shell: bash
+        run: gradle :app:assembleDebug --stacktrace
+
+      - name: Conferir APK FINAL V14
+        if: steps.parts.outputs.ready == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="HQTradutorV14/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          unzip -t "$APK" >/dev/null
+          unzip -l "$APK" | grep -q 'AndroidManifest.xml'
+          unzip -l "$APK" | grep -q 'resources.arsc'
+          unzip -l "$APK" | grep -q 'classes.dex'
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep -q "package: name='com.hqtradutor.app'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep -q "versionCode='14'"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$APK"
+          ls -lh "$APK"
+          sha256sum "$APK"
+
+      - name: Publicar APK FINAL V14
+        if: steps.parts.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: HQTradutor-FINAL-V14-APK
+          path: HQTradutorV14/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 90
