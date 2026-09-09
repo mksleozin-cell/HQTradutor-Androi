@@ -50,6 +50,39 @@ jobs:
           test -s HQTradutorV13/app/src/main/java/com/hqtradutor/app/ProcessingService.java
           test -s HQTradutorV13/app/src/main/java/com/hqtradutor/app/DiagnosticLog.java
 
+      - name: Corrigir helper OCR V13
+        if: steps.parts.outputs.ready == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYFIX'
+          from pathlib import Path
+          p = Path("HQTradutorV13/app/src/main/java/com/hqtradutor/app/MainActivity.java")
+          s = p.read_text(encoding="utf-8")
+          if "class DetectedBlock" not in s:
+              marker = "    private final class Chapter {"
+              lines = [
+                  "    private static final class DetectedBlock {",
+                  "        final Rect box;",
+                  "        final String original;",
+                  "",
+                  "        DetectedBlock(Rect box, String original) {",
+                  "            this.box = box;",
+                  "            this.original = original;",
+                  "        }",
+                  "    }",
+                  "",
+              ]
+              helper = "\n".join(lines) + "\n"
+              if marker not in s:
+                  raise SystemExit("Ponto de inserção do helper OCR não encontrado")
+              s = s.replace(marker, helper + marker, 1)
+              p.write_text(s, encoding="utf-8")
+          if "private static final class DetectedBlock" not in p.read_text(encoding="utf-8"):
+              raise SystemExit("Helper OCR DetectedBlock não foi aplicado")
+          print("Helper OCR DetectedBlock OK")
+          PYFIX
+
       - name: Auditoria de segurança e retomada
         if: steps.parts.outputs.ready == 'true'
         shell: bash
@@ -62,6 +95,7 @@ jobs:
           grep -q 'versionCode 13' "$GRADLE"
           grep -q 'HQ Tradutor V13' "$SRC"
           grep -q 'SAVED_V13' "$SRC"
+          grep -q 'private static final class DetectedBlock' "$SRC"
           grep -q 'CAPTURE_ISOLATED' "$SRC"
           grep -q 'activeCaptureToken' "$SRC"
           grep -q 'fingerprintDistance' "$SRC"
